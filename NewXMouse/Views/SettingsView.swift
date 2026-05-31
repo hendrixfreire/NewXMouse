@@ -1,0 +1,447 @@
+import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+
+struct SettingsView: View {
+    @EnvironmentObject var configStore: ConfigStore
+    @EnvironmentObject var eventTapManager: EventTapManager
+    @EnvironmentObject var activeAppMonitor: ActiveAppMonitor
+    @EnvironmentObject var accessibilityChecker: AccessibilityChecker
+    @State private var selectedProfileID: String? = ProfileConstants.defaultBundleID
+    @State private var showingDiagnostics = false
+
+    var body: some View {
+        NavigationSplitView {
+            List(selection: $selectedProfileID) {
+                Section("Global") {
+                    HStack(spacing: 10) {
+                        ProfileIconView(bundleID: ProfileConstants.defaultBundleID, size: 18)
+                        Text("Default")
+                    }
+                        .tag(ProfileConstants.defaultBundleID)
+                }
+
+                Section("Applications") {
+                    ForEach(configStore.appProfiles) { profile in
+                        HStack(spacing: 10) {
+                            ProfileIconView(bundleID: profile.bundleID, size: 18)
+                            Text(profile.displayName)
+                        }
+                            .tag(profile.bundleID)
+                            .contextMenu {
+                                Button {
+                                    configStore.duplicateProfile(bundleID: profile.bundleID)
+                                } label: {
+                                    Label("Duplicate Profile", systemImage: "doc.on.doc")
+                                }
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    if selectedProfileID == profile.bundleID {
+                                        selectedProfileID = ProfileConstants.defaultBundleID
+                                    }
+                                    configStore.removeProfile(bundleID: profile.bundleID)
+                                } label: {
+                                    Label("Delete Profile", systemImage: "trash")
+                                }
+                            }
+                    }
+                    .onDelete { indexSet in
+                        for index in indexSet {
+                            let bundleID = configStore.appProfiles[index].bundleID
+                            if selectedProfileID == bundleID {
+                                selectedProfileID = ProfileConstants.defaultBundleID
+                            }
+                            configStore.removeProfile(bundleID: bundleID)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        exportConfig()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .help("Export Configuration")
+
+                    Button {
+                        importConfig()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .help("Import Configuration")
+
+                    Button {
+                        showingDiagnostics.toggle()
+                    } label: {
+                        Image(systemName: diagnosticsNeedsAttention ? "stethoscope.circle.fill" : "stethoscope.circle")
+                    }
+                    .help("Diagnostics")
+                    .popover(isPresented: $showingDiagnostics) {
+                        DiagnosticsPanel()
+                            .frame(width: 520)
+                            .padding(16)
+                    }
+
+                    AddAppButton(configStore: configStore)
+                }
+            }
+        } detail: {
+            if let profileID = selectedProfileID {
+                ProfileEditView(bundleID: profileID, onDelete: profileID != ProfileConstants.defaultBundleID ? {
+                    selectedProfileID = ProfileConstants.defaultBundleID
+                    configStore.removeProfile(bundleID: profileID)
+                } : nil)
+                    .id(profileID)
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "sidebar.left")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("Select a Profile")
+                        .font(.title3.weight(.semibold))
+                    Text("Choose a default mapping or add an application-specific profile.")
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 880, minHeight: 620)
+    }
+
+    private var diagnosticsNeedsAttention: Bool {
+        !accessibilityChecker.hasRequiredAccess || !eventTapManager.isRunning
+    }
+
+    // MARK: - Import / Export
+
+    private func exportConfig() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "newxmouse-config.json"
+        panel.message = "Export New X Mouse configuration"
+        if panel.runModal() == .OK, let url = panel.url {
+            if !configStore.exportConfig(to: url) {
+                showAlert(title: "Export Failed", message: configStore.lastSaveError ?? "Unknown error")
+            }
+        }
+    }
+
+    private func importConfig() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.message = "Import New X Mouse configuration"
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            if !configStore.importConfig(from: url) {
+                showAlert(title: "Import Failed", message: configStore.lastSaveError ?? "Unknown error")
+            }
+        }
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+}
+
+struct AddAppButton: View {
+    @ObservedObject var configStore: ConfigStore
+    @State private var showingRunningApps = false
+
+    var body: some View {
+        Button {
+            showingRunningApps = true
+        } label: {
+            Label("Add Profile", systemImage: "plus")
+        }
+        .popover(isPresented: $showingRunningApps) {
+            RunningAppsList(configStore: configStore, isPresented: $showingRunningApps)
+                .frame(width: 360, height: 420)
+        }
+    }
+}
+
+struct RunningAppsList: View {
+    @ObservedObject var configStore: ConfigStore
+    @Binding var isPresented: Bool
+    @State private var searchText = ""
+
+    var runningApps: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil }
+            .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
+    }
+
+    var filteredApps: [NSRunningApplication] {
+        if searchText.isEmpty { return runningApps }
+        return runningApps.filter { app in
+            let name = app.localizedName ?? ""
+            let bundleID = app.bundleIdentifier ?? ""
+            return name.localizedCaseInsensitiveContains(searchText) || bundleID.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Add Application")
+                .font(.headline)
+                .padding(.horizontal)
+                .padding(.top)
+
+            Text("Choose one of the currently running apps to create a dedicated profile.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+
+            TextField("Search apps...", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+            List(filteredApps, id: \.bundleIdentifier) { app in
+                Button {
+                    if let bundleID = app.bundleIdentifier {
+                        let profile = AppProfile(
+                            bundleID: bundleID,
+                            displayName: app.localizedName ?? bundleID
+                        )
+                        configStore.addProfile(profile)
+                        isPresented = false
+                    }
+                } label: {
+                    HStack {
+                        if let icon = app.icon {
+                            Image(nsImage: icon)
+                                .resizable()
+                                .frame(width: 20, height: 20)
+                        }
+                        Text(app.localizedName ?? "Unknown")
+                        Spacer()
+                        Text(app.bundleIdentifier ?? "")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            if filteredApps.isEmpty && !searchText.isEmpty {
+                Text("No matching apps found.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            }
+        }
+    }
+}
+
+private struct DiagnosticsPanel: View {
+    @EnvironmentObject var configStore: ConfigStore
+    @EnvironmentObject var eventTapManager: EventTapManager
+    @EnvironmentObject var activeAppMonitor: ActiveAppMonitor
+    @EnvironmentObject var accessibilityChecker: AccessibilityChecker
+    private var activeProfileName: String {
+        configStore.activeProfile(for: activeAppMonitor.currentBundleID).displayName
+    }
+
+    private var appBundlePath: String {
+        Bundle.main.bundleURL.path
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Diagnostics")
+                .font(.headline)
+
+            HStack(spacing: 18) {
+                DiagnosticStatusBadge(
+                    title: "Accessibility",
+                    value: accessibilityChecker.isGranted ? "Granted" : "Missing",
+                    isGood: accessibilityChecker.isGranted
+                )
+
+                DiagnosticStatusBadge(
+                    title: "Input Monitoring",
+                    value: accessibilityChecker.isListenGranted ? "Granted" : "Missing",
+                    isGood: accessibilityChecker.isListenGranted
+                )
+
+                DiagnosticStatusBadge(
+                    title: "Event Tap",
+                    value: eventTapManager.isRunning ? "Running" : "Stopped",
+                    isGood: eventTapManager.isRunning
+                )
+            }
+
+            if let lastTapError = eventTapManager.lastTapError, !lastTapError.isEmpty {
+                Text(lastTapError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(8)
+                    .background(Color.red.opacity(0.08))
+                    .cornerRadius(6)
+            }
+
+            DiagnosticRow(label: "Active App", value: activeAppMonitor.currentAppName.isEmpty ? "None" : activeAppMonitor.currentAppName)
+            DiagnosticRow(label: "Bundle ID", value: activeAppMonitor.currentBundleID.isEmpty ? "None" : activeAppMonitor.currentBundleID)
+            DiagnosticRow(label: "Active Profile", value: activeProfileName)
+            DiagnosticRow(label: "Last Event", value: eventTapManager.lastObservedEvent)
+            DiagnosticRow(label: "App Location", value: appBundlePath)
+            DiagnosticRow(label: "Config File", value: configStore.configFileURL.path)
+
+            Divider()
+
+            // MARK: Button Capture Diagnostic
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Button Capture Test")
+                    .font(.subheadline.weight(.medium))
+
+                Text("Captures ALL events for 15 seconds to identify what your mouse buttons generate.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                HStack(spacing: 10) {
+                    if eventTapManager.isCapturing {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Capturing... press your mouse buttons now!")
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.orange)
+
+                        Button("Stop") {
+                            eventTapManager.stopDiagnosticCapture()
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button {
+                            eventTapManager.startDiagnosticCapture()
+                        } label: {
+                            Label("Start Capture", systemImage: "record.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
+                }
+
+                if !eventTapManager.diagnosticCaptures.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(eventTapManager.diagnosticCaptures.suffix(30)) { evt in
+                                Text(evt.summary)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(colorForEventType(evt.eventTypeName))
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 200)
+                    .padding(8)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .cornerRadius(6)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Actions")
+                    .font(.subheadline.weight(.medium))
+
+                HStack(spacing: 10) {
+                    Button {
+                        accessibilityChecker.promptIfNeeded()
+                        accessibilityChecker.refreshStatus()
+                        if accessibilityChecker.canInterceptEvents {
+                            eventTapManager.restart()
+                        }
+                    } label: {
+                        Label("Re-check Permissions", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        eventTapManager.restart()
+                    } label: {
+                        Label("Restart Event Tap", systemImage: "bolt.circle")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([configStore.configFileURL])
+                    } label: {
+                        Label("Reveal Config", systemImage: "doc")
+                    }
+                    .buttonStyle(.bordered)
+
+                    if !accessibilityChecker.hasRequiredAccess {
+                        Button {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                        } label: {
+                            Label("Open Privacy Settings", systemImage: "lock.shield")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    private func colorForEventType(_ name: String) -> Color {
+        if name.contains("otherMouse") { return .green }
+        if name.contains("rightMouse") { return .blue }
+        if name.contains("leftMouse") { return .primary }
+        if name.contains("key") { return .orange }
+        if name.contains("scroll") { return .secondary }
+        if name.contains("type(") { return .red }
+        return .secondary
+    }
+}
+
+private struct DiagnosticStatusBadge: View {
+    let title: String
+    let value: String
+    let isGood: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            HStack(spacing: 6) {
+                Image(systemName: isGood ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(isGood ? .green : .red)
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+    }
+}
+
+private struct DiagnosticRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .foregroundColor(.secondary)
+                .frame(width: 110, alignment: .leading)
+            Text(value)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+        }
+    }
+}

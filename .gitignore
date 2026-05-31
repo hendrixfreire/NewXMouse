@@ -1,0 +1,35 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Build artifacts
+*.o
+*.a
+*.dylib
+*.dSYM
+*.ipa
+*.dmg
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# CocoaPods
+Pods/
+
+# Misc
+*.swp
+*~
+.idea/

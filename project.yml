@@ -1,0 +1,31 @@
+name: NewXMouse
+options:
+  bundleIdPrefix: com.hendrix
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "16.0"
+
+targets:
+  NewXMouse:
+    type: application
+    platform: macOS
+    sources:
+      - NewXMouse
+    info:
+      path: NewXMouse/Info.plist
+      properties:
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        CFBundleDisplayName: New X Mouse
+        CFBundleName: NewXMouse
+    entitlements:
+      path: NewXMouse/NewXMouse.entitlements
+    settings:
+      base:
+        PRODUCT_NAME: New X Mouse
+        PRODUCT_BUNDLE_IDENTIFIER: com.hendrix.newxmouse
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.9"
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_IDENTITY: "-"
+        INFOPLIST_FILE: NewXMouse/Info.plist
