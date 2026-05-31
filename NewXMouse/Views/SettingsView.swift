@@ -155,91 +155,236 @@ struct SettingsView: View {
 
 struct AddAppButton: View {
     @ObservedObject var configStore: ConfigStore
-    @State private var showingRunningApps = false
+    @State private var showingAppPicker = false
 
     var body: some View {
         Button {
-            showingRunningApps = true
+            showingAppPicker = true
         } label: {
             Label("Add Profile", systemImage: "plus")
         }
-        .popover(isPresented: $showingRunningApps) {
-            RunningAppsList(configStore: configStore, isPresented: $showingRunningApps)
-                .frame(width: 360, height: 420)
+        .popover(isPresented: $showingAppPicker) {
+            AppPickerView(configStore: configStore, isPresented: $showingAppPicker)
+                .frame(width: 400, height: 500)
         }
     }
 }
 
-struct RunningAppsList: View {
+// MARK: - Installed App Model
+
+struct InstalledApp: Identifiable {
+    let bundleID: String
+    let displayName: String
+    let icon: NSImage?
+    let url: URL
+
+    var id: String { bundleID }
+}
+
+// MARK: - App Picker
+
+struct AppPickerView: View {
     @ObservedObject var configStore: ConfigStore
     @Binding var isPresented: Bool
     @State private var searchText = ""
+    @State private var installedApps: [InstalledApp] = []
+    @State private var showManualEntry = false
+    @State private var manualBundleID = ""
+    @State private var manualName = ""
+    @State private var isScanning = true
 
-    var runningApps: [NSRunningApplication] {
-        NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil }
-            .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
-    }
+    private let searchDebounce = 0.3
 
-    var filteredApps: [NSRunningApplication] {
-        if searchText.isEmpty { return runningApps }
-        return runningApps.filter { app in
-            let name = app.localizedName ?? ""
-            let bundleID = app.bundleIdentifier ?? ""
-            return name.localizedCaseInsensitiveContains(searchText) || bundleID.localizedCaseInsensitiveContains(searchText)
+    var filteredApps: [InstalledApp] {
+        if searchText.isEmpty { return installedApps }
+        return installedApps.filter { app in
+            app.displayName.localizedCaseInsensitiveContains(searchText) ||
+            app.bundleID.localizedCaseInsensitiveContains(searchText)
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Add Application")
-                .font(.headline)
-                .padding(.horizontal)
-                .padding(.top)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Add Application")
+                    .font(.headline)
+                Text("Choose an installed app or enter a bundle ID manually.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
 
-            Text("Choose one of the currently running apps to create a dedicated profile.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .padding(.horizontal)
-
-            TextField("Search apps...", text: $searchText)
+            // Search
+            TextField("Search by name or bundle ID...", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.bottom, 6)
 
-            List(filteredApps, id: \.bundleIdentifier) { app in
-                Button {
-                    if let bundleID = app.bundleIdentifier {
+            // Loading or list
+            if isScanning {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Scanning installed applications...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(filteredApps) { app in
+                    Button {
                         let profile = AppProfile(
-                            bundleID: bundleID,
-                            displayName: app.localizedName ?? bundleID
+                            bundleID: app.bundleID,
+                            displayName: app.displayName
                         )
                         configStore.addProfile(profile)
                         isPresented = false
+                    } label: {
+                        HStack(spacing: 10) {
+                            if let icon = app.icon {
+                                Image(nsImage: icon)
+                                    .resizable()
+                                    .frame(width: 24, height: 24)
+                            } else {
+                                Image(systemName: "app.dashed")
+                                    .frame(width: 24, height: 24)
+                                    .foregroundColor(.secondary)
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(app.displayName)
+                                    .font(.body)
+                                Text(app.bundleID)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+
+                            if configStore.appProfiles.contains(where: { $0.bundleID == app.bundleID }) {
+                                Text("Added")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.12))
+                                    .cornerRadius(4)
+                            }
+                        }
                     }
+                    .buttonStyle(.plain)
+                }
+
+                if filteredApps.isEmpty && !searchText.isEmpty {
+                    VStack(spacing: 6) {
+                        Text("No matching apps found.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Text("Try entering the bundle ID manually.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                }
+            }
+
+            Divider()
+
+            // Manual entry section
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    withAnimation { showManualEntry.toggle() }
                 } label: {
                     HStack {
-                        if let icon = app.icon {
-                            Image(nsImage: icon)
-                                .resizable()
-                                .frame(width: 20, height: 20)
-                        }
-                        Text(app.localizedName ?? "Unknown")
-                        Spacer()
-                        Text(app.bundleIdentifier ?? "")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                        Image(systemName: showManualEntry ? "chevron.down" : "chevron.right")
+                            .font(.caption)
+                        Text("Enter Bundle ID Manually")
+                            .font(.subheadline.weight(.medium))
                     }
                 }
                 .buttonStyle(.plain)
+
+                if showManualEntry {
+                    HStack(spacing: 8) {
+                        TextField("Bundle ID (e.g. com.apple.Safari)", text: $manualBundleID)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                        TextField("Display Name", text: $manualName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                        Button("Add") {
+                            guard !manualBundleID.isEmpty else { return }
+                            let profile = AppProfile(
+                                bundleID: manualBundleID,
+                                displayName: manualName.isEmpty ? manualBundleID : manualName
+                            )
+                            configStore.addProfile(profile)
+                            manualBundleID = ""
+                            manualName = ""
+                            isPresented = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(manualBundleID.isEmpty)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+        }
+        .onAppear {
+            scanInstalledApps()
+        }
+    }
+
+    // MARK: - Scan
+
+    private func scanInstalledApps() {
+        isScanning = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            var apps = [InstalledApp]()
+            var seen = Set<String>()
+
+            let searchPaths = [
+                "/Applications",
+                "/System/Applications",
+                "/System/Applications/Utilities",
+                NSHomeDirectory() + "/Applications",
+                "/Developer/Applications"
+            ]
+
+            for searchPath in searchPaths {
+                guard let enumerator = FileManager.default.enumerator(at: URL(fileURLWithPath: searchPath), includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]) else { continue }
+
+                for case let fileURL as URL in enumerator {
+                    guard fileURL.pathExtension == "app" else { continue }
+                    guard let bundle = Bundle(url: fileURL),
+                          let bundleID = bundle.bundleIdentifier,
+                          !seen.contains(bundleID) else { continue }
+
+                    seen.insert(bundleID)
+                    let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                                ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+                                ?? fileURL.deletingPathExtension().lastPathComponent
+
+                    let icon = NSWorkspace.shared.icon(forFile: fileURL.path)
+                    icon.size = NSSize(width: 32, height: 32)
+
+                    apps.append(InstalledApp(
+                        bundleID: bundleID,
+                        displayName: name,
+                        icon: icon,
+                        url: fileURL
+                    ))
+                }
             }
 
-            if filteredApps.isEmpty && !searchText.isEmpty {
-                Text("No matching apps found.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding()
+            apps.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+            DispatchQueue.main.async {
+                self.installedApps = apps
+                self.isScanning = false
             }
         }
     }
