@@ -92,8 +92,8 @@ enum ActionQuickPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .passthrough: return "No Change"
-        case .disabled: return "Disabled"
+        case .passthrough: return "Pass Through"
+        case .disabled: return "Block"
         case .leftClick: return "Left Click"
         case .leftDoubleClick: return "Left Double Click"
         case .rightClick: return "Right Click"
@@ -189,14 +189,19 @@ enum Action: Codable, Equatable {
             }
             return "Double Click Button \(button)"
         case .appLaunch(let bundleID):
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+               let appName = Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                ?? Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleName") as? String {
+                return "Launch \(appName)"
+            }
             return "Launch \(bundleID)"
         case .shell(let command):
             let preview = command.prefix(30)
             return "Run: \(preview)\(command.count > 30 ? "..." : "")"
         case .disabled:
-            return "Disabled"
+            return "Block"
         case .passthrough:
-            return "No Change"
+            return "Pass Through"
         }
     }
 
@@ -392,15 +397,47 @@ enum Action: Codable, Equatable {
         }
     }
 
+    private static let shellLog = OSLog(subsystem: "com.newxmouse.app", category: "Shell")
+
     private func executeShell(command: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            os_log("Shell command empty — skipping", log: Self.shellLog, type: .info)
+            return
+        }
+
         DispatchQueue.global(qos: .userInitiated).async {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = ["-c", command]
+            process.arguments = ["-c", trimmed]
+
+            // Capture stderr for error reporting
+            let errPipe = Pipe()
+            process.standardError = errPipe
+
             do {
                 try process.run()
+
+                // Enforce a 10-second timeout
+                let timeoutDate = Date().addingTimeInterval(10)
+                while process.isRunning && Date() < timeoutDate {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                }
+
+                if process.isRunning {
+                    process.terminate()
+                    os_log("Shell command timed out (10s): %{public}s", log: Self.shellLog, type: .error, trimmed)
+                    return
+                }
+
+                let exitCode = process.terminationStatus
+                if exitCode != 0 {
+                    let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrStr = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    os_log("Shell command exited %d: %{public}s — %{public}s", log: Self.shellLog, type: .error, exitCode, trimmed, stderrStr)
+                }
             } catch {
-                os_log("Shell command failed: %{public}s — %{public}s", log: OSLog(subsystem: "com.newxmouse.app", category: "Action"), type: .error, command, error.localizedDescription)
+                os_log("Shell command failed to launch: %{public}s — %{public}s", log: Self.shellLog, type: .error, trimmed, error.localizedDescription)
             }
         }
     }

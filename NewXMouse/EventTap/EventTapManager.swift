@@ -16,7 +16,9 @@ final class EventTapManager: ObservableObject {
     private var healthTimer: Timer?
 
     // Shared context accessible from the C callback
-    static var shared: EventTapManager?
+    // Weak reference prevents dangling pointer if manager is deallocated
+    private static weak var _shared: EventTapManager?
+    static var shared: EventTapManager? { _shared }
 
     var configStore: ConfigStore?
     var activeAppMonitor: ActiveAppMonitor?
@@ -33,7 +35,7 @@ final class EventTapManager: ObservableObject {
             os_log("start() called but tap already exists — skipping", log: log, type: .info)
             return
         }
-        EventTapManager.shared = self
+        EventTapManager._shared = self
         lastTapError = nil
 
         os_log("Creating event tap...", log: log, type: .info)
@@ -119,7 +121,7 @@ final class EventTapManager: ObservableObject {
         }
         eventTap = nil
         runLoopSource = nil
-        EventTapManager.shared = nil
+        EventTapManager._shared = nil
 
         DispatchQueue.main.async {
             self.isRunning = false
@@ -414,7 +416,7 @@ private func eventTapCallback(
             mouseButton = deltaY > 0 ? .scrollUp : .scrollDown
             scrollDelta = abs(deltaY)
         } else if deltaX != 0 {
-            mouseButton = deltaX > 0 ? .scrollLeft : .scrollRight
+            mouseButton = deltaX > 0 ? .scrollRight : .scrollLeft
             scrollDelta = abs(deltaX)
         } else {
             return Unmanaged.passUnretained(event)

@@ -4,6 +4,52 @@ enum ProfileConstants {
     static let defaultBundleID = "default"
 }
 
+/// Maps legacy MouseButton raw values to current values.
+/// v1.x used 100-103 for scroll; v2.0+ uses negative values to avoid collision with real buttons.
+private func migrateMouseButtonRawValue(_ raw: Int) -> Int {
+    switch raw {
+    case 100: return MouseButton.scrollUp.rawValue    // was 100, now -1
+    case 101: return MouseButton.scrollDown.rawValue   // was 101, now -2
+    case 102: return MouseButton.scrollLeft.rawValue   // was 102, now -3
+    case 103: return MouseButton.scrollRight.rawValue  // was 103, now -4
+    default:  return raw
+    }
+}
+
+/// Resolve a String key to a MouseButton, handling legacy raw value migration.
+private func resolveMouseButton(from key: String) -> MouseButton? {
+    guard let intKey = Int(key) else { return nil }
+    let migrated = migrateMouseButtonRawValue(intKey)
+    return MouseButton(rawValue: migrated)
+}
+
+/// Decodes a String-keyed JSON dictionary into `[MouseButton: MappingEntry]`.
+/// Handles both MappingEntry and legacy Action-only formats.
+private func decodeMappingsDict(from stringKeyed: [String: MappingEntry]) -> [MouseButton: MappingEntry] {
+    var result: [MouseButton: MappingEntry] = [:]
+    for (key, value) in stringKeyed {
+        if let button = resolveMouseButton(from: key) {
+            result[button] = value
+        }
+    }
+    return result
+}
+
+private func decodeMappingsDict(from stringKeyed: [String: Action]) -> [MouseButton: MappingEntry] {
+    var result: [MouseButton: MappingEntry] = [:]
+    for (key, value) in stringKeyed {
+        if let button = resolveMouseButton(from: key) {
+            result[button] = MappingEntry(action: value)
+        }
+    }
+    return result
+}
+
+/// Encodes a `[MouseButton: MappingEntry]` dictionary as String-keyed JSON.
+private func encodeMappingsDict(_ mappings: [MouseButton: MappingEntry]) -> [String: MappingEntry] {
+    Dictionary(uniqueKeysWithValues: mappings.map { ("\($0.key.rawValue)", $0.value) })
+}
+
 struct MappingEntry: Codable, Equatable {
     var action: Action
     var enabled: Bool = true
@@ -42,22 +88,10 @@ struct Layer: Codable, Identifiable, Equatable {
 
         // Decode mappings — try MappingEntry first, then legacy Action format
         if let stringKeyedMappings = try? container.decode([String: MappingEntry].self, forKey: .mappings) {
-            var result: [MouseButton: MappingEntry] = [:]
-            for (key, value) in stringKeyedMappings {
-                if let intKey = Int(key), let button = MouseButton(rawValue: intKey) {
-                    result[button] = value
-                }
-            }
-            mappings = result
+            mappings = decodeMappingsDict(from: stringKeyedMappings)
         } else {
             let stringKeyedMappings = try container.decode([String: Action].self, forKey: .mappings)
-            var result: [MouseButton: MappingEntry] = [:]
-            for (key, value) in stringKeyedMappings {
-                if let intKey = Int(key), let button = MouseButton(rawValue: intKey) {
-                    result[button] = MappingEntry(action: value)
-                }
-            }
-            mappings = result
+            mappings = decodeMappingsDict(from: stringKeyedMappings)
         }
     }
 
@@ -66,8 +100,7 @@ struct Layer: Codable, Identifiable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(isDefault, forKey: .isDefault)
-        let stringKeyedMappings = Dictionary(uniqueKeysWithValues: mappings.map { ("\($0.key.rawValue)", $0.value) })
-        try container.encode(stringKeyedMappings, forKey: .mappings)
+        try container.encode(encodeMappingsDict(mappings), forKey: .mappings)
     }
 }
 
@@ -167,20 +200,11 @@ struct AppProfile: Codable, Identifiable, Equatable {
             activeLayerID = try container.decode(UUID.self, forKey: .activeLayerID)
         } else {
             // Legacy format: flat mappings, no layers
-            // Decode flat mappings
             var flatMappings: [MouseButton: MappingEntry] = [:]
             if let stringKeyedMappings = try? container.decode([String: MappingEntry].self, forKey: .mappings) {
-                for (key, value) in stringKeyedMappings {
-                    if let intKey = Int(key), let button = MouseButton(rawValue: intKey) {
-                        flatMappings[button] = value
-                    }
-                }
+                flatMappings = decodeMappingsDict(from: stringKeyedMappings)
             } else if let stringKeyedMappings = try? container.decode([String: Action].self, forKey: .mappings) {
-                for (key, value) in stringKeyedMappings {
-                    if let intKey = Int(key), let button = MouseButton(rawValue: intKey) {
-                        flatMappings[button] = MappingEntry(action: value)
-                    }
-                }
+                flatMappings = decodeMappingsDict(from: stringKeyedMappings)
             }
 
             let defaultLayer = Layer(name: "Default", mappings: flatMappings, isDefault: true)
@@ -196,8 +220,6 @@ struct AppProfile: Codable, Identifiable, Equatable {
         try container.encode(layers, forKey: .layers)
         try container.encode(activeLayerID, forKey: .activeLayerID)
         // Encode active layer's mappings as top-level "mappings" for backward compat
-        let activeMappings = activeLayer?.mappings ?? [:]
-        let stringKeyedMappings = Dictionary(uniqueKeysWithValues: activeMappings.map { ("\($0.key.rawValue)", $0.value) })
-        try container.encode(stringKeyedMappings, forKey: .mappings)
+        try container.encode(encodeMappingsDict(activeLayer?.mappings ?? [:]), forKey: .mappings)
     }
 }

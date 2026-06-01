@@ -9,6 +9,8 @@ struct SettingsView: View {
     @EnvironmentObject var accessibilityChecker: AccessibilityChecker
     @State private var selectedProfileID: String? = ProfileConstants.defaultBundleID
     @State private var showingDiagnostics = false
+    @State private var showImportConfirmation = false
+    @State private var pendingImportURL: URL?
 
     var body: some View {
         NavigationSplitView {
@@ -124,6 +126,21 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 880, minHeight: 620)
+        .alert("Replace Configuration?", isPresented: $showImportConfirmation) {
+            Button("Replace", role: .destructive) {
+                if let url = pendingImportURL {
+                    if !configStore.importConfig(from: url) {
+                        showAlert(title: "Import Failed", message: configStore.lastSaveError ?? "Unknown error")
+                    }
+                }
+                pendingImportURL = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingImportURL = nil
+            }
+        } message: {
+            Text("Importing a full configuration will replace all your current profiles and mappings. This cannot be undone.")
+        }
     }
 
     private var diagnosticsNeedsAttention: Bool {
@@ -150,9 +167,8 @@ struct SettingsView: View {
         panel.message = "Import New X Mouse configuration"
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
-            if !configStore.importConfig(from: url) {
-                showAlert(title: "Import Failed", message: configStore.lastSaveError ?? "Unknown error")
-            }
+            pendingImportURL = url
+            showImportConfirmation = true
         }
     }
 
@@ -211,10 +227,16 @@ struct AddAppButton: View {
 struct InstalledApp: Identifiable {
     let bundleID: String
     let displayName: String
-    let icon: NSImage?
     let url: URL
 
     var id: String { bundleID }
+
+    /// Lazy-loaded icon — only created when the row appears on screen
+    var icon: NSImage {
+        let img = NSWorkspace.shared.icon(forFile: url.path)
+        img.size = NSSize(width: 32, height: 32)
+        return img
+    }
 }
 
 // MARK: - App Picker
@@ -280,15 +302,11 @@ struct AppPickerView: View {
                         isPresented = false
                     } label: {
                         HStack(spacing: 10) {
-                            if let icon = app.icon {
-                                Image(nsImage: icon)
-                                    .resizable()
-                                    .frame(width: 24, height: 24)
-                            } else {
-                                Image(systemName: "app.dashed")
-                                    .frame(width: 24, height: 24)
-                                    .foregroundColor(.secondary)
-                            }
+                            Image(nsImage: app.icon)
+                                .resizable()
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.secondary)
+
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(app.displayName)
                                     .font(.body)
@@ -404,13 +422,9 @@ struct AppPickerView: View {
                                 ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
                                 ?? fileURL.deletingPathExtension().lastPathComponent
 
-                    let icon = NSWorkspace.shared.icon(forFile: fileURL.path)
-                    icon.size = NSSize(width: 32, height: 32)
-
                     apps.append(InstalledApp(
                         bundleID: bundleID,
                         displayName: name,
-                        icon: icon,
                         url: fileURL
                     ))
                 }

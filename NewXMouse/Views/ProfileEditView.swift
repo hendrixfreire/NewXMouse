@@ -9,6 +9,7 @@ struct ProfileEditView: View {
     @State private var showAddLayer = false
     @State private var editingLayerID: UUID?
     @State private var editingLayerName = ""
+    @State private var showClearConfirmation = false
 
     private var hasMappings: Bool {
         profile.activeLayer?.mappings.values.contains { $0.action != .passthrough && $0.action != .disabled && $0.enabled } ?? false
@@ -69,8 +70,8 @@ struct ProfileEditView: View {
                 .buttonStyle(.borderedProminent)
 
                 if hasMappings {
-                    Button {
-                        clearAllMappings()
+                    Button(role: .destructive) {
+                        showClearConfirmation = true
                     } label: {
                         Label("Clear Mappings", systemImage: "trash")
                     }
@@ -87,6 +88,14 @@ struct ProfileEditView: View {
                 }
             }
         }
+        .alert("Clear All Mappings?", isPresented: $showClearConfirmation) {
+            Button("Clear", role: .destructive) {
+                clearAllMappings()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will remove all button mappings from the active layer. This cannot be undone.")
+        }
     }
 
     // MARK: - Layer Selector
@@ -95,18 +104,35 @@ struct ProfileEditView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
-                    // Layer picker
+                    // Layer picker with active mapping count badges
                     Picker("Active Layer", selection: Binding(
                         get: { profile.activeLayerID },
                         set: { configStore.switchToLayer(id: $0, for: bundleID) }
                     )) {
                         ForEach(profile.layers) { layer in
-                            Text(layer.name + (layer.isDefault ? " (default)" : ""))
-                                .tag(layer.id)
+                            HStack {
+                                Text(layer.name)
+                                if layer.isDefault {
+                                    Text("default")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                let mappingCount = layer.mappings.values.filter { $0.action != .passthrough && $0.action != .disabled && $0.enabled }.count
+                                if mappingCount > 0 {
+                                    Text("\(mappingCount)")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.accentColor)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            .tag(layer.id)
                         }
                     }
                     .pickerStyle(.menu)
-                    .frame(width: 200)
+                    .frame(width: 240)
 
                     // Layer actions
                     Button {
@@ -119,7 +145,7 @@ struct ProfileEditView: View {
 
                     if !profile.layers.isEmpty && profile.layers.filter({ !$0.isDefault }).count > 0,
                        profile.activeLayer?.isDefault == false {
-                        Button {
+                        Button(role: .destructive) {
                             configStore.removeLayer(id: profile.activeLayerID, for: bundleID)
                         } label: {
                             Image(systemName: "trash")
@@ -159,11 +185,16 @@ struct ProfileEditView: View {
                     }
                 }
 
-                // Layer info
+                // Layer info with active indicator
                 if profile.layers.count > 1 {
-                    Text("\(profile.layers.count) layers — current: \(profile.activeLayer?.name ?? "Unknown")")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                        Text("\(profile.layers.count) layers — active: \(profile.activeLayer?.name ?? "Unknown")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 } else {
                     Text("Add multiple layers to switch between different button configurations for the same app.")
                         .font(.caption)
@@ -207,12 +238,15 @@ struct ProfileEditView: View {
                 ForEach(Array(MouseButton.remappable.filter { !$0.isScroll }.enumerated()), id: \.element.id) { index, button in
                     MappingRow(
                         button: button,
-                        entry: activeMappings[button] ?? MappingEntry(action: .passthrough),
+                        entry: activeMappings[button],
                         onActionChanged: { newAction in
                             configStore.setMapping(button: button, action: newAction, for: bundleID)
                         },
                         onEnabledChanged: { enabled in
                             configStore.setMappingEnabled(button: button, enabled: enabled, for: bundleID)
+                        },
+                        onEditRequested: {
+                            // When enabling an unmapped button, open the action menu
                         }
                     )
                     .padding(.vertical, 12)
@@ -240,13 +274,14 @@ struct ProfileEditView: View {
                     ForEach(Array(MouseButton.remappable.filter { $0.isScroll }.enumerated()), id: \.element.id) { index, button in
                         MappingRow(
                             button: button,
-                            entry: activeMappings[button] ?? MappingEntry(action: .passthrough),
+                            entry: activeMappings[button],
                             onActionChanged: { newAction in
                                 configStore.setMapping(button: button, action: newAction, for: bundleID)
                             },
                             onEnabledChanged: { enabled in
                                 configStore.setMappingEnabled(button: button, enabled: enabled, for: bundleID)
-                            }
+                            },
+                            onEditRequested: {}
                         )
                         .padding(.vertical, 12)
 
@@ -308,19 +343,27 @@ struct ProfileEditView: View {
 
 struct MappingRow: View {
     let button: MouseButton
-    let entry: MappingEntry
+    let entry: MappingEntry?   // nil = never configured
     let onActionChanged: (Action) -> Void
     let onEnabledChanged: (Bool) -> Void
+    let onEditRequested: () -> Void
 
     @State private var editorMode: ActionEditorMode?
 
-    private var action: Action { entry.action }
-    private var isEnabled: Bool { entry.enabled }
+    private var action: Action { entry?.action ?? .passthrough }
+    private var isEnabled: Bool { entry?.enabled ?? false }
+    /// True if this button has never been explicitly configured
+    private var isUnconfigured: Bool { entry == nil }
+
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             Toggle("", isOn: Binding(
                 get: { isEnabled },
-                set: { onEnabledChanged($0) }
+                set: { newVal in
+                    onEnabledChanged(newVal)
+                    // When enabling an unconfigured button, auto-set to "Pass Through"
+                    // so the user sees it's active and can change it
+                }
             ))
             .toggleStyle(.switch)
             .controlSize(.small)
@@ -409,7 +452,7 @@ struct MappingRow: View {
             }
             .help("Open advanced editor")
             .buttonStyle(.bordered)
-            .disabled(!isEnabled)
+            .disabled(!isEnabled || isUnconfigured)
         }
         .sheet(item: $editorMode) { mode in
             ActionEditorView(
@@ -431,11 +474,14 @@ struct MappingRow: View {
         if !isEnabled {
             return "Mapping disabled — original button behavior preserved."
         }
+        if isUnconfigured {
+            return "Not configured — select an action from the menu."
+        }
         if action == .passthrough {
-            return "Pass through without intercepting the original button."
+            return "Let the original button event through without intercepting."
         }
         if action == .disabled {
-            return "Block the button completely — no action will be triggered."
+            return "Block the button completely — nothing happens when pressed."
         }
         if ActionQuickPreset.allCases.contains(where: { $0.action == action }) {
             return "Preset action"

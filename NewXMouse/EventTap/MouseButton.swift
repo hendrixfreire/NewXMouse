@@ -9,10 +9,11 @@ enum MouseButton: Int, Codable, CaseIterable, Identifiable, Comparable {
     case extra1 = 5
     case extra2 = 6
     case extra3 = 7
-    case scrollUp = 100
-    case scrollDown = 101
-    case scrollLeft = 102
-    case scrollRight = 103
+    // Virtual scroll directions — negative values avoid collision with real mouse buttons (0–31)
+    case scrollUp = -1
+    case scrollDown = -2
+    case scrollLeft = -3
+    case scrollRight = -4
 
     var id: Int { rawValue }
 

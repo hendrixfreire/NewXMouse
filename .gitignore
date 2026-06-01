@@ -1,9 +1,11 @@
 # Xcode
-DerivedData/
 build/
-*.xcuserstate
-xcuserdata/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
 *.xcscmblueprint
+*.xccheckout
+xcschememanagement.plist
 
 # macOS
 .DS_Store
@@ -13,23 +15,35 @@ xcuserdata/
 .Spotlight-V100
 .Trashes
 
-# Build artifacts
-*.o
-*.a
-*.dylib
-*.dSYM
-*.ipa
+# Distribution
 *.dmg
+*.zip
 
 # Swift Package Manager
 .build/
+.swiftpm/
 Packages/
+Package.pins
 Package.resolved
 
 # CocoaPods
 Pods/
 
-# Misc
-*.swp
-*~
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Secrets
+*.env
+.env
+secrets.plist
+GoogleService-Info.plist
+
+# IntelliJ / VS Code
 .idea/
+.vscode/
+*.swp
+*.swo
+*~

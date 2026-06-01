@@ -2,162 +2,109 @@
 
 A macOS menu bar utility that remaps mouse buttons to configurable actions on a per-application basis.
 
-Map your mouse side buttons to different keyboard shortcuts depending on which app is in focus — back/forward in your browser, copy/paste in your editor, or anything else you want.
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue) ![MIT License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
 - **Per-app remapping** — Different button mappings for every application
-- **Default fallback profile** — Global mappings when no app-specific profile exists
-- **Multiple action types**
-  - Keyboard shortcuts (with modifiers)
-  - Key sequences (multi-step macros)
-  - Mouse button remapping & double-click
-  - Application launch
-  - Shell command execution
-- **Quick presets** — Mission Control, App Exposé, Spotlight, Volume, Zoom, and more
-- **Scroll wheel remapping** — Remap scroll up/down to any action
-- **Key recorder** — Record custom shortcuts and sequences by pressing keys
-- **Built-in diagnostics** — Button capture test, permission status, event log
-- **Zero dependencies** — Pure Swift + macOS SDK
-
-## Requirements
-
-- macOS 13.0 (Ventura) or later
-- Accessibility permission (prompted on first launch)
-- Input Monitoring permission (prompted on first launch)
+- **Layer system** — Multiple mapping profiles per app, switch instantly
+- **Scroll wheel remapping** — Map scroll up/down/left/right to any action
+- **Quick presets** — Mission Control, Spotlight, volume, zoom, and more
+- **Custom shortcuts** — Record any keyboard shortcut with modifier keys
+- **Key sequences** — Simulate multi-key sequences with configurable timing
+- **App launching** — Press a button to open any application
+- **Shell commands** — Run arbitrary shell commands from a button press
+- **Import/Export** — Share configurations between machines
+- **Diagnostics** — Built-in event capture tool to debug button mappings
 
 ## Installation
 
 ### Download
 
-Download the latest release from the [Releases page](../../releases).
+Grab the latest release from the [Releases](../../releases) page.
 
 ### Build from Source
 
-```bash
-git clone https://github.com/hendrixfreire/new-x-mouse.git
-cd new-x-mouse
-open NewXMouse.xcodeproj
-```
+1. Clone the repository
+2. Open `NewXMouse.xcodeproj` in Xcode
+3. Build and run (⌘R)
 
-Then build and run in Xcode (Cmd+R).
+## Setup
 
-> **Note:** The app cannot run in the Xcode Simulator. It must run on a real Mac with Accessibility permissions granted.
+On first launch, macOS will prompt you to grant **Accessibility** and **Input Monitoring** permissions. Both are required for the app to intercept and remap mouse events.
 
-### Permissions
-
-On first launch, macOS will prompt you to grant:
-
-1. **Accessibility** — Required to intercept mouse events
-2. **Input Monitoring** — Required to read input events
-
-Both can be granted in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**.
+1. Open System Settings → Privacy & Security → Accessibility
+2. Enable **New X Mouse**
+3. Open System Settings → Privacy & Security → Input Monitoring
+4. Enable **New X Mouse**
+5. Restart the app
 
 ## Usage
 
-### Menu Bar
+### Default Profile
 
-The app lives in the menu bar. Click the mouse icon to:
+The default profile applies when no app-specific mapping matches. Start here to set global button behavior.
 
-- View the active profile and current app
-- Enable/disable remapping
-- Open Settings
-- Check permission status
-
-### Settings
-
-The Settings window has a sidebar with your profiles:
-
-- **Default** — Fallback mappings used when no app-specific profile matches
-- **App profiles** — Mappings that only apply when a specific app is focused
-
-### Adding an App Profile
+### App-Specific Profiles
 
 1. Click the **+** button in the toolbar
-2. Select a running application from the list
+2. Select an installed application or enter a bundle ID manually
 3. Configure button mappings for that app
 
-### Mapping a Button
+### Layers
 
-For each remappable button, use the dropdown to:
+Layers let you switch between different mapping configurations for the same app. For example, one layer for normal browsing and another for gaming — without creating separate profiles.
 
-- Choose a **quick preset** (Mission Control, Volume, etc.)
-- Create a **custom shortcut** (any key + modifiers)
-- Build a **key sequence** (multi-step macro with recording)
-- **Launch an application** by bundle ID
-- **Run a shell command**
+### Actions
 
-### Button Numbers
+| Action | Description |
+|--------|-------------|
+| **Pass Through** | Let the original button event through unchanged |
+| **Block** | Completely block the button — nothing happens |
+| **Keystroke** | Send a keyboard shortcut (e.g. ⌘W) |
+| **Key Sequence** | Send multiple keys in sequence |
+| **Mouse Button** | Simulate a different mouse button click |
+| **Double Click** | Simulate a double-click |
+| **App Launch** | Open an application |
+| **Shell Command** | Run a shell command (with 10s timeout) |
+
+### Mouse Button Reference
 
 | Button | Number |
 |--------|--------|
-| Left Click | 0 |
-| Right Click | 1 |
-| Middle Click | 2 |
+| Left | 0 |
+| Right | 1 |
+| Middle | 2 |
 | Side Back | 3 |
 | Side Forward | 4 |
-| Extra 6-8 | 5-7 |
-| Scroll Up | — |
-| Scroll Down | — |
+| Extra 1-3 | 5-7 |
+| Scroll Up/Down/Left/Right | Virtual |
 
 ## Configuration
 
-Config is stored at:
+Config is stored at `~/Library/Application Support/NewXMouse/config.json`.
 
-```
-~/Library/Application Support/NewXMouse/config.json
-```
-
-### Config Format
-
-```json
-{
-  "defaultProfile": {
-    "bundleID": "default",
-    "displayName": "Default",
-    "mappings": {
-      "3": { "keystroke": { "key": 123, "modifiers": ["command"] } },
-      "4": { "keystroke": { "key": 124, "modifiers": ["command"] } }
-    }
-  },
-  "appProfiles": [
-    {
-      "bundleID": "com.apple.Safari",
-      "displayName": "Safari",
-      "mappings": {
-        "3": { "keystroke": { "key": 123, "modifiers": [] } },
-        "4": { "keystroke": { "key": 124, "modifiers": [] } }
-      }
-    }
-  ]
-}
-```
-
-You can edit this file directly — changes are detected on next save from the app.
+You can export and import configurations via the toolbar buttons. Importing a full configuration **replaces** all current profiles.
 
 ## Architecture
 
-```
-EventTap (CGEvent tap, C callback)
-    ↓ intercepts mouse events
-ActiveAppMonitor (NSWorkspace notifications)
-    ↓ provides current bundleID (thread-safe)
-ConfigStore (JSON config)
-    ↓ resolves (button, app) → action
-Action (execute via CGEvent)
-    ↓ posts synthetic events
-```
+- **EventTapManager** — `CGEvent` tap that intercepts mouse events
+- **ActiveAppMonitor** — Tracks frontmost application via NSWorkspace notifications
+- **ConfigStore** — JSON config persistence with undo/redo support
+- **Action** — Enum of all remappable actions with execution logic
+- **SwiftUI** — Menu bar + Settings window with NavigationSplitView
 
-Key design decisions:
+### Key Constraints
 
-- **C function pointer callback** — CGEvent taps don't support Swift closures. State is accessed via `EventTapManager.shared`.
-- **Thread-safe** — The event tap callback runs off the main thread. `ActiveAppMonitor` uses `OSAllocatedUnfairLock`.
-- **Non-sandboxed** — CGEvent taps cannot work in the App Sandbox. Distributed via Developer ID + notarization.
-- **LSUIElement** — The app lives in the menu bar only (no Dock icon).
+- **Non-sandboxed** — CGEvent taps cannot work within the App Sandbox
+- **LSUIElement** — App lives in the menu bar, not the Dock
+- **Thread safety** — Event tap callback runs off-main-thread; shared state is lock-protected
 
-## Why "New X Mouse"?
+## Requirements
 
-A nod to the classic X-Mouse paradigm from X11 window managers, where window focus follows the mouse. This app gives your mouse buttons new life on macOS.
+- macOS 13 Ventura or later
+- Accessibility permission
+- Input Monitoring permission
 
 ## License
 

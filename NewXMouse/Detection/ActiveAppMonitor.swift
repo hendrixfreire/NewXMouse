@@ -27,9 +27,10 @@ final class ActiveAppMonitor: ObservableObject {
             .sink { [weak self] app in
                 guard let self else { return }
                 let bundleID = app.bundleIdentifier ?? ""
+                // Update lock FIRST so event tap callback sees the new value immediately
+                self.lock.withLock { $0 = bundleID }
                 self.currentBundleID = bundleID
                 self.currentAppName = app.localizedName ?? ""
-                self.lock.withLock { $0 = bundleID }
             }
     }
 
