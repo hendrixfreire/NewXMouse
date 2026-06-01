@@ -65,7 +65,8 @@ enum ActionEditorMode: String, CaseIterable, Identifiable {
 }
 
 enum ActionQuickPreset: String, CaseIterable, Identifiable {
-    case noChange
+    case passthrough
+    case disabled
     case leftClick
     case leftDoubleClick
     case rightClick
@@ -91,7 +92,8 @@ enum ActionQuickPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .noChange: return "No Change"
+        case .passthrough: return "No Change"
+        case .disabled: return "Disabled"
         case .leftClick: return "Left Click"
         case .leftDoubleClick: return "Left Double Click"
         case .rightClick: return "Right Click"
@@ -114,8 +116,10 @@ enum ActionQuickPreset: String, CaseIterable, Identifiable {
 
     var action: Action {
         switch self {
-        case .noChange:
-            return .none
+        case .passthrough:
+            return .passthrough
+        case .disabled:
+            return .disabled
         case .leftClick:
             return .mouseButton(button: MouseButton.left.rawValue)
         case .leftDoubleClick:
@@ -161,7 +165,8 @@ enum Action: Codable, Equatable {
     case doubleClick(button: Int)
     case appLaunch(bundleID: String)
     case shell(command: String)
-    case none
+    case disabled      // Block the button completely — no action, no passthrough
+    case passthrough   // Don't intercept — let the original event through
 
     static let syntheticEventMarker: Int64 = 0x4E584D
 
@@ -188,7 +193,9 @@ enum Action: Codable, Equatable {
         case .shell(let command):
             let preview = command.prefix(30)
             return "Run: \(preview)\(command.count > 30 ? "..." : "")"
-        case .none:
+        case .disabled:
+            return "Disabled"
+        case .passthrough:
             return "No Change"
         }
     }
@@ -201,7 +208,8 @@ enum Action: Codable, Equatable {
         case .doubleClick: return "Double Click"
         case .appLaunch: return "App"
         case .shell: return "Shell"
-        case .none: return ""
+        case .disabled: return "Disabled"
+        case .passthrough: return ""
         }
     }
 
@@ -213,7 +221,8 @@ enum Action: Codable, Equatable {
         case .doubleClick: return "cursorarrow.click.2"
         case .appLaunch: return "app.badge.checkmark"
         case .shell: return "terminal"
-        case .none: return ""
+        case .disabled: return "nosign"
+        case .passthrough: return ""
         }
     }
 
@@ -227,7 +236,7 @@ enum Action: Codable, Equatable {
             return .appLaunch
         case .shell:
             return .shell
-        case .mouseButton, .doubleClick, .none:
+        case .mouseButton, .doubleClick, .disabled, .passthrough:
             return nil
         }
     }
@@ -262,8 +271,10 @@ enum Action: Codable, Equatable {
             if isDown { executeAppLaunch(bundleID: bundleID) }
         case .shell(let command):
             if isDown { executeShell(command: command) }
-        case .none:
-            break
+        case .disabled:
+            break  // Block the event — handled by EventTapManager returning nil
+        case .passthrough:
+            break  // Should never be called — EventTapManager passes through
         }
     }
 

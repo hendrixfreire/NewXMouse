@@ -414,8 +414,7 @@ private func eventTapCallback(
             mouseButton = deltaY > 0 ? .scrollUp : .scrollDown
             scrollDelta = abs(deltaY)
         } else if deltaX != 0 {
-            // Horizontal scroll maps: positive = left (scrollUp), negative = right (scrollDown)
-            mouseButton = deltaX > 0 ? .scrollUp : .scrollDown
+            mouseButton = deltaX > 0 ? .scrollLeft : .scrollRight
             scrollDelta = abs(deltaX)
         } else {
             return Unmanaged.passUnretained(event)
@@ -468,8 +467,11 @@ private func eventTapCallback(
                isDown ? "down" : "up",
                action.displayName,
                currentApp)
-        action.execute(isDown: isDown)
-        return nil // Suppress original event
+        if action != .disabled {
+            action.execute(isDown: isDown)
+        }
+        // Both .disabled and other actions suppress the original event
+        return nil
     }
 
     os_log("PASS: %{public}s %{public}s — no mapping (app: %{public}s)",

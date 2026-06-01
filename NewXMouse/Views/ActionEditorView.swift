@@ -222,13 +222,13 @@ struct ActionEditorView: View {
             return .keystroke(key: selectedKeyCode, modifiers: modifiers)
         case .keySequence:
             let cleanedSequence = recordedKeys
-            return cleanedSequence.isEmpty ? .none : .keySequence(keys: cleanedSequence)
+            return cleanedSequence.isEmpty ? .passthrough : .keySequence(keys: cleanedSequence)
         case .appLaunch:
             let trimmedBundleID = appBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedBundleID.isEmpty ? .none : .appLaunch(bundleID: trimmedBundleID)
+            return trimmedBundleID.isEmpty ? .passthrough : .appLaunch(bundleID: trimmedBundleID)
         case .shell:
             let trimmedCommand = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedCommand.isEmpty ? .none : .shell(command: trimmedCommand)
+            return trimmedCommand.isEmpty ? .passthrough : .shell(command: trimmedCommand)
         }
     }
 
@@ -250,7 +250,7 @@ struct ActionEditorView: View {
         case .shell(let command):
             editorMode = .shell
             shellCommand = command
-        case .mouseButton, .doubleClick, .none:
+        case .mouseButton, .doubleClick, .disabled, .passthrough:
             editorMode = initialMode
         }
     }

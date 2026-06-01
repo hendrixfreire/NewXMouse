@@ -35,6 +35,18 @@ struct SettingsView: View {
                                     Label("Duplicate Profile", systemImage: "doc.on.doc")
                                 }
 
+                                Button {
+                                    exportSingleProfile(bundleID: profile.bundleID, displayName: profile.displayName)
+                                } label: {
+                                    Label("Export Profile", systemImage: "square.and.arrow.up")
+                                }
+
+                                Button {
+                                    importSingleProfile()
+                                } label: {
+                                    Label("Import Profile", systemImage: "square.and.arrow.down.on.square")
+                                }
+
                                 Divider()
 
                                 Button(role: .destructive) {
@@ -150,6 +162,30 @@ struct SettingsView: View {
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.runModal()
+    }
+
+    private func exportSingleProfile(bundleID: String, displayName: String) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "newxmouse-\(displayName.lowercased().replacingOccurrences(of: " ", with: "-")).json"
+        panel.message = "Export profile for \(displayName)"
+        if panel.runModal() == .OK, let url = panel.url {
+            if !configStore.exportProfile(bundleID: bundleID, to: url) {
+                showAlert(title: "Export Failed", message: configStore.lastSaveError ?? "Unknown error")
+            }
+        }
+    }
+
+    private func importSingleProfile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.message = "Import a New X Mouse profile"
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            if !configStore.importProfile(from: url) {
+                showAlert(title: "Import Failed", message: configStore.lastSaveError ?? "Unknown error")
+            }
+        }
     }
 }
 

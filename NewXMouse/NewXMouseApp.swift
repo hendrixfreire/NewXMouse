@@ -160,7 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateActiveProfileMenuItem(bundleID: String) {
         let activeProfile = configStore.activeProfile(for: bundleID)
         let sourceName = activeAppMonitor.currentAppName.isEmpty ? "No Active App" : activeAppMonitor.currentAppName
-        activeProfileMenuItem?.title = "Active Profile: \(activeProfile.displayName) (\(sourceName))"
+        let layerInfo = activeProfile.layers.count > 1 ? " [\(activeProfile.activeLayer?.name ?? "?")]" : ""
+        activeProfileMenuItem?.title = "Active Profile: \(activeProfile.displayName)\(layerInfo) (\(sourceName))"
     }
 
     // MARK: - Event Tap
@@ -177,9 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         os_log("  CGPreflightPostEventAccess (Post Events): %{public}d", log: log, type: .info, accessibilityChecker.isPostGranted)
         os_log("  canInterceptEvents: %{public}d", log: log, type: .info, accessibilityChecker.canInterceptEvents)
         os_log("  hasRequiredAccess: %{public}d", log: log, type: .info, accessibilityChecker.hasRequiredAccess)
-        os_log("  Default profile mappings count: %{public}d", log: log, type: .info, configStore.defaultProfile.mappings.count)
-        for (button, action) in configStore.defaultProfile.mappings {
-            os_log("    Button %{public}d (%{public}s) → %{public}s", log: log, type: .info, button.rawValue, button.displayName, action.displayName)
+        os_log("  Default profile mappings count: %{public}d", log: log, type: .info, configStore.defaultProfile.activeLayer?.mappings.count ?? 0)
+        if let layer = configStore.defaultProfile.activeLayer {
+            for (button, entry) in layer.mappings {
+                os_log("    Button %{public}d (%{public}s) → %{public}s", log: log, type: .info, button.rawValue, button.displayName, entry.action.displayName)
+            }
         }
         os_log("  App profiles count: %{public}d", log: log, type: .info, configStore.appProfiles.count)
         os_log("============================", log: log, type: .info)
@@ -198,12 +201,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func syncEventTapWithPermissions() {
-        os_log("syncEventTapWithPermissions: canIntercept=%{public}d isRunning=%{public}d userDisabled=%{public}d",
-               log: log, type: .debug,
-               accessibilityChecker.canInterceptEvents,
-               eventTapManager.isRunning,
-               userDisabledTap)
-
         guard !userDisabledTap else { return }
 
         if accessibilityChecker.canInterceptEvents {

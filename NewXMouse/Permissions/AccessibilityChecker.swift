@@ -36,8 +36,6 @@ final class AccessibilityChecker: ObservableObject {
             if !isListenGranted {
                 _ = CGRequestListenEventAccess()
             }
-            // Post Access is implicitly covered by Accessibility on modern macOS.
-            // CGRequestPostEventAccess() can show confusing dialogs, so skip it.
         }
 
         refreshStatus()
@@ -52,8 +50,6 @@ final class AccessibilityChecker: ObservableObject {
     }
 
     var hasRequiredAccess: Bool {
-        // Post Access is covered by Accessibility on macOS 13+.
-        // CGPreflightPostEventAccess can return false even when posting works fine.
         isGranted && isListenGranted
     }
 

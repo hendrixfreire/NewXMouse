@@ -11,6 +11,8 @@ enum MouseButton: Int, Codable, CaseIterable, Identifiable, Comparable {
     case extra3 = 7
     case scrollUp = 100
     case scrollDown = 101
+    case scrollLeft = 102
+    case scrollRight = 103
 
     var id: Int { rawValue }
 
@@ -26,17 +28,19 @@ enum MouseButton: Int, Codable, CaseIterable, Identifiable, Comparable {
         case .extra3: return "Extra Button 8"
         case .scrollUp: return "Scroll Up"
         case .scrollDown: return "Scroll Down"
+        case .scrollLeft: return "Scroll Left"
+        case .scrollRight: return "Scroll Right"
         }
     }
 
     /// Buttons that are commonly remapped (excludes left click by default)
     static var remappable: [MouseButton] {
-        [.right, .middle, .side1, .side2, .extra1, .extra2, .extra3, .scrollUp, .scrollDown]
+        [.right, .middle, .side1, .side2, .extra1, .extra2, .extra3, .scrollUp, .scrollDown, .scrollLeft, .scrollRight]
     }
 
     /// Whether this is a scroll wheel "button"
     var isScroll: Bool {
-        self == .scrollUp || self == .scrollDown
+        self == .scrollUp || self == .scrollDown || self == .scrollLeft || self == .scrollRight
     }
 
     static func < (lhs: MouseButton, rhs: MouseButton) -> Bool {

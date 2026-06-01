@@ -5,8 +5,13 @@ struct ProfileEditView: View {
     var onDelete: (() -> Void)?
     @EnvironmentObject var configStore: ConfigStore
 
+    @State private var newLayerName = ""
+    @State private var showAddLayer = false
+    @State private var editingLayerID: UUID?
+    @State private var editingLayerName = ""
+
     private var hasMappings: Bool {
-        profile.mappings.values.contains { $0 != .none }
+        profile.activeLayer?.mappings.values.contains { $0.action != .passthrough && $0.action != .disabled && $0.enabled } ?? false
     }
 
     private var profile: AppProfile {
@@ -29,6 +34,7 @@ struct ProfileEditView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 profileHeader
+                layerSelector
                 mappingsSection
                 profileInfoSection
             }
@@ -36,6 +42,8 @@ struct ProfileEditView: View {
         }
         .background(Color(NSColor.controlBackgroundColor))
     }
+
+    // MARK: - Header
 
     private var profileHeader: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -81,16 +89,130 @@ struct ProfileEditView: View {
         }
     }
 
+    // MARK: - Layer Selector
+
+    private var layerSelector: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    // Layer picker
+                    Picker("Active Layer", selection: Binding(
+                        get: { profile.activeLayerID },
+                        set: { configStore.switchToLayer(id: $0, for: bundleID) }
+                    )) {
+                        ForEach(profile.layers) { layer in
+                            Text(layer.name + (layer.isDefault ? " (default)" : ""))
+                                .tag(layer.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 200)
+
+                    // Layer actions
+                    Button {
+                        configStore.duplicateLayer(id: profile.activeLayerID, for: bundleID)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .help("Duplicate current layer")
+                    .buttonStyle(.bordered)
+
+                    if !profile.layers.isEmpty && profile.layers.filter({ !$0.isDefault }).count > 0,
+                       profile.activeLayer?.isDefault == false {
+                        Button {
+                            configStore.removeLayer(id: profile.activeLayerID, for: bundleID)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .help("Delete current layer")
+                        .buttonStyle(.bordered)
+                    }
+
+                    Spacer()
+
+                    // Add layer
+                    Button {
+                        showAddLayer = true
+                    } label: {
+                        Label("Add Layer", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                // Inline rename
+                if editingLayerID != nil {
+                    HStack(spacing: 8) {
+                        TextField("Layer name", text: $editingLayerName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        Button("Save") {
+                            if let id = editingLayerID {
+                                configStore.renameLayer(id: id, name: editingLayerName, for: bundleID)
+                            }
+                            editingLayerID = nil
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("Cancel") {
+                            editingLayerID = nil
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                // Layer info
+                if profile.layers.count > 1 {
+                    Text("\(profile.layers.count) layers — current: \(profile.activeLayer?.name ?? "Unknown")")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Add multiple layers to switch between different button configurations for the same app.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        } label: {
+            Label("Layers", systemImage: "square.3.layers.3d")
+        }
+        .alert("New Layer", isPresented: $showAddLayer) {
+            TextField("Layer name", text: $newLayerName)
+            Button("Create") {
+                let name = newLayerName.isEmpty ? "Layer \(profile.layers.count + 1)" : newLayerName
+                configStore.addLayer(name: name, for: bundleID)
+                newLayerName = ""
+            }
+            Button("Cancel", role: .cancel) {
+                newLayerName = ""
+            }
+        } message: {
+            Text("Enter a name for the new layer.")
+        }
+        .contextMenu {
+            Button("Rename Current Layer") {
+                editingLayerID = profile.activeLayerID
+                editingLayerName = profile.activeLayer?.name ?? ""
+            }
+        }
+    }
+
+    // MARK: - Mappings
+
     private var mappingsSection: some View {
         GroupBox {
             VStack(spacing: 0) {
+                let activeMappings = profile.activeLayer?.mappings ?? [:]
+
                 // Button mappings
                 ForEach(Array(MouseButton.remappable.filter { !$0.isScroll }.enumerated()), id: \.element.id) { index, button in
                     MappingRow(
                         button: button,
-                        action: profile.mappings[button] ?? .none,
+                        entry: activeMappings[button] ?? MappingEntry(action: .passthrough),
                         onActionChanged: { newAction in
                             configStore.setMapping(button: button, action: newAction, for: bundleID)
+                        },
+                        onEnabledChanged: { enabled in
+                            configStore.setMappingEnabled(button: button, enabled: enabled, for: bundleID)
                         }
                     )
                     .padding(.vertical, 12)
@@ -118,9 +240,12 @@ struct ProfileEditView: View {
                     ForEach(Array(MouseButton.remappable.filter { $0.isScroll }.enumerated()), id: \.element.id) { index, button in
                         MappingRow(
                             button: button,
-                            action: profile.mappings[button] ?? .none,
+                            entry: activeMappings[button] ?? MappingEntry(action: .passthrough),
                             onActionChanged: { newAction in
                                 configStore.setMapping(button: button, action: newAction, for: bundleID)
+                            },
+                            onEnabledChanged: { enabled in
+                                configStore.setMappingEnabled(button: button, enabled: enabled, for: bundleID)
                             }
                         )
                         .padding(.vertical, 12)
@@ -138,13 +263,17 @@ struct ProfileEditView: View {
         }
     }
 
+    // MARK: - Profile Info
+
     private var profileInfoSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 ProfileInfoRow(label: "Profile Type", value: bundleID == ProfileConstants.defaultBundleID ? "Default" : "Application-specific")
                 ProfileInfoRow(label: "Display Name", value: profile.displayName)
                 ProfileInfoRow(label: "Bundle Identifier", value: bundleID == ProfileConstants.defaultBundleID ? "All Applications" : bundleID)
-                ProfileInfoRow(label: "Configured Buttons", value: "\(profile.mappings.values.filter { $0 != .none }.count)")
+                ProfileInfoRow(label: "Layers", value: "\(profile.layers.count)")
+                ProfileInfoRow(label: "Active Layer", value: profile.activeLayer?.name ?? "Unknown")
+                ProfileInfoRow(label: "Configured Buttons", value: "\(profile.activeLayer?.mappings.values.filter { $0.action != .passthrough && $0.action != .disabled && $0.enabled }.count ?? 0)")
 
                 if let saveFeedback = configStore.lastManualSave {
                     Divider()
@@ -179,13 +308,24 @@ struct ProfileEditView: View {
 
 struct MappingRow: View {
     let button: MouseButton
-    let action: Action
+    let entry: MappingEntry
     let onActionChanged: (Action) -> Void
+    let onEnabledChanged: (Bool) -> Void
 
     @State private var editorMode: ActionEditorMode?
 
+    private var action: Action { entry.action }
+    private var isEnabled: Bool { entry.enabled }
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
+            Toggle("", isOn: Binding(
+                get: { isEnabled },
+                set: { onEnabledChanged($0) }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .help(isEnabled ? "Disable this mapping" : "Enable this mapping")
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(button.displayName)
                     .font(.body.weight(.medium))
@@ -194,6 +334,7 @@ struct MappingRow: View {
                     .foregroundColor(.secondary)
             }
             .frame(width: 200, alignment: .leading)
+            .opacity(isEnabled ? 1.0 : 0.5)
 
             Spacer(minLength: 0)
 
@@ -227,19 +368,19 @@ struct MappingRow: View {
                 }
 
                 Section("Custom Actions") {
-                    Button("Custom Shortcut…") {
+                    Button("Custom Shortcut...") {
                         editorMode = .shortcut
                     }
 
-                    Button("Simulated Key Sequence…") {
+                    Button("Simulated Key Sequence...") {
                         editorMode = .keySequence
                     }
 
-                    Button("Launch Application…") {
+                    Button("Launch Application...") {
                         editorMode = .appLaunch
                     }
 
-                    Button("Run Shell Command…") {
+                    Button("Run Shell Command...") {
                         editorMode = .shell
                     }
                 }
@@ -259,6 +400,7 @@ struct MappingRow: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .disabled(!isEnabled)
 
             Button {
                 editorMode = action.editorMode ?? .shortcut
@@ -267,6 +409,7 @@ struct MappingRow: View {
             }
             .help("Open advanced editor")
             .buttonStyle(.bordered)
+            .disabled(!isEnabled)
         }
         .sheet(item: $editorMode) { mode in
             ActionEditorView(
@@ -285,8 +428,14 @@ struct MappingRow: View {
     }
 
     private var helperText: String {
-        if action == .none {
+        if !isEnabled {
+            return "Mapping disabled — original button behavior preserved."
+        }
+        if action == .passthrough {
             return "Pass through without intercepting the original button."
+        }
+        if action == .disabled {
+            return "Block the button completely — no action will be triggered."
         }
         if ActionQuickPreset.allCases.contains(where: { $0.action == action }) {
             return "Preset action"
