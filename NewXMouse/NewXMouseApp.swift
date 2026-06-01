@@ -31,10 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var cancellables = Set<AnyCancellable>()
     private var settingsWindow: NSWindow?
-    private var enabledMenuItem: NSMenuItem!
     private var activeProfileMenuItem: NSMenuItem!
     private var permissionsMenuItem: NSMenuItem!
-    private var userDisabledTap = false
     private var launchAtLoginMenuItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -65,12 +63,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        // Enable/Disable toggle
-        enabledMenuItem = NSMenuItem(title: "Enable", action: #selector(toggleEnabled), keyEquivalent: "")
-        enabledMenuItem.target = self
-        updateEnabledMenuItem()
-        menu.addItem(enabledMenuItem)
-
         // Launch at Login toggle
         launchAtLoginMenuItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginMenuItem.target = self
@@ -79,17 +71,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        // Quit
-        let quitItem = NSMenuItem(title: "Quit New X Mouse", action: #selector(quitApp), keyEquivalent: "q")
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        menu.addItem(.separator())
-
         permissionsMenuItem = NSMenuItem(title: "", action: #selector(grantAccessibility), keyEquivalent: "")
         permissionsMenuItem.target = self
         menu.addItem(permissionsMenuItem)
         updatePermissionsMenuItem()
+
+        // Quit
+        let quitItem = NSMenuItem(title: "Quit New X Mouse", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
 
         statusItem.menu = menu
 
@@ -100,23 +90,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
-        // Update enabled state when tap starts/stops
-        eventTapManager.$isRunning
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateEnabledMenuItem()
-            }
-            .store(in: &cancellables)
-
         Publishers.CombineLatest3(
             accessibilityChecker.$isGranted,
             accessibilityChecker.$isListenGranted,
             accessibilityChecker.$isPostGranted
         )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _, _, _ in
+            self?.updatePermissionsMenuItem()
+            self?.updateStatusBarIcon()
+            self?.syncEventTapWithPermissions()
+        }
+        .store(in: &cancellables)
+
+        eventTapManager.$isRunning
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in
-                self?.updatePermissionsMenuItem()
-                self?.syncEventTapWithPermissions()
+            .sink { [weak self] _ in
+                self?.updateStatusBarIcon()
             }
             .store(in: &cancellables)
 
@@ -129,11 +119,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .store(in: &cancellables)
 
         updateActiveProfileMenuItem(bundleID: activeAppMonitor.currentBundleID)
+        updateStatusBarIcon()
     }
 
-    private func updateEnabledMenuItem() {
-        enabledMenuItem?.title = eventTapManager.isRunning ? "Disable" : "Enable"
-        enabledMenuItem?.state = eventTapManager.isRunning ? .on : .off
+    // MARK: - Status Bar Icon
+
+    private func updateStatusBarIcon() {
+        let symbolName: String
+        if eventTapManager.isRunning {
+            symbolName = "computermouse.fill"
+        } else {
+            symbolName = "computermouse" // outlined = inactive
+        }
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "New X Mouse")
+                ?? NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "New X Mouse")
+        }
     }
 
     private func updatePermissionsMenuItem() {
@@ -200,9 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Automatically starts/stops the event tap based on current permissions.
+    /// No user toggle — if permissions are granted, the tap runs.
     private func syncEventTapWithPermissions() {
-        guard !userDisabledTap else { return }
-
         if accessibilityChecker.canInterceptEvents {
             if !eventTapManager.isRunning {
                 eventTapManager.start()
@@ -216,21 +217,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func grantAccessibility() {
         accessibilityChecker.promptIfNeeded()
-    }
-
-    @objc private func toggleEnabled() {
-        if eventTapManager.isRunning {
-            userDisabledTap = true
-            eventTapManager.stop()
-        } else {
-            userDisabledTap = false
-            // Must have permissions before starting the tap
-            if accessibilityChecker.canInterceptEvents {
-                eventTapManager.start()
-            } else {
-                accessibilityChecker.promptIfNeeded()
-            }
-        }
     }
 
     // MARK: - Launch at Login
@@ -292,9 +278,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         accessibilityChecker.refreshStatus()
         syncEventTapWithPermissions()
-        updateEnabledMenuItem()
         updatePermissionsMenuItem()
         updateActiveProfileMenuItem(bundleID: activeAppMonitor.currentBundleID)
         updateLaunchAtLoginMenuItem()
+        updateStatusBarIcon()
     }
 }

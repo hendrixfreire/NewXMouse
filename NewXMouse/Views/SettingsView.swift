@@ -76,6 +76,27 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(min: 220, ideal: 240)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    // On/Off toggle
+                    Toggle(isOn: Binding(
+                        get: { eventTapManager.isRunning },
+                        set: { on in
+                            if on {
+                                if accessibilityChecker.canInterceptEvents {
+                                    eventTapManager.start()
+                                } else {
+                                    accessibilityChecker.promptIfNeeded()
+                                }
+                            } else {
+                                eventTapManager.stop()
+                            }
+                        }
+                    )) {
+                        Image(systemName: eventTapManager.isRunning ? "power.circle.fill" : "power.circle")
+                    }
+                    .toggleStyle(.button)
+                    .help(eventTapManager.isRunning ? "Disable Remapping" : "Enable Remapping")
+                    .tint(eventTapManager.isRunning ? .green : .secondary)
+
                     Button {
                         exportConfig()
                     } label: {
