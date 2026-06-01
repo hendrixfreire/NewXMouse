@@ -173,20 +173,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         accessibilityChecker.refreshStatus()
 
-        os_log("=== STARTUP DIAGNOSTICS ===", log: log, type: .info)
-        os_log("  AXIsProcessTrusted (Accessibility): %{public}d", log: log, type: .info, accessibilityChecker.isGranted)
-        os_log("  CGPreflightListenEventAccess (Input Monitoring): %{public}d", log: log, type: .info, accessibilityChecker.isListenGranted)
-        os_log("  CGPreflightPostEventAccess (Post Events): %{public}d", log: log, type: .info, accessibilityChecker.isPostGranted)
-        os_log("  canInterceptEvents: %{public}d", log: log, type: .info, accessibilityChecker.canInterceptEvents)
-        os_log("  hasRequiredAccess: %{public}d", log: log, type: .info, accessibilityChecker.hasRequiredAccess)
-        os_log("  Default profile mappings count: %{public}d", log: log, type: .info, configStore.defaultProfile.activeLayer?.mappings.count ?? 0)
+        NSLog("=== STARTUP DIAGNOSTICS ===")
+        NSLog("  AXIsProcessTrusted: \(accessibilityChecker.isGranted)")
+        NSLog("  CGPreflightListenEventAccess: \(accessibilityChecker.isListenGranted)")
+        NSLog("  CGPreflightPostEventAccess: \(accessibilityChecker.isPostGranted)")
+        NSLog("  canInterceptEvents: \(accessibilityChecker.canInterceptEvents)")
+        NSLog("  hasRequiredAccess: \(accessibilityChecker.hasRequiredAccess)")
+        NSLog("  Default profile mappings count: \(configStore.defaultProfile.activeLayer?.mappings.count ?? 0)")
         if let layer = configStore.defaultProfile.activeLayer {
             for (button, entry) in layer.mappings {
-                os_log("    Button %{public}d (%{public}s) → %{public}s", log: log, type: .info, button.rawValue, button.displayName, entry.action.displayName)
+                NSLog("    Button \(button.rawValue) (\(button.displayName)) → \(entry.action.displayName)")
             }
         }
-        os_log("  App profiles count: %{public}d", log: log, type: .info, configStore.appProfiles.count)
-        os_log("============================", log: log, type: .info)
+        NSLog("  App profiles count: \(configStore.appProfiles.count)")
+        NSLog("============================")
 
         syncEventTapWithPermissions()
 

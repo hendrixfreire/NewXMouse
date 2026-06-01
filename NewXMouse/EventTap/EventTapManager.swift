@@ -38,7 +38,7 @@ final class EventTapManager: ObservableObject {
         EventTapManager._shared = self
         lastTapError = nil
 
-        os_log("Creating event tap...", log: log, type: .info)
+        NSLog("Creating event tap...")
 
         let eventMask: CGEventMask =
             (1 << CGEventType.otherMouseDown.rawValue) |
@@ -66,11 +66,11 @@ final class EventTapManager: ObservableObject {
         ) else {
             let msg = "CGEvent.tapCreate returned nil — event tap NOT created. Check Accessibility + Input Monitoring."
             lastTapError = msg
-            os_log("%{public}s", log: log, type: .error, msg)
+            NSLog("ERROR: \(msg)")
             return
         }
 
-        os_log("CGEvent.tapCreate succeeded (CFMachPort obtained)", log: log, type: .info)
+        NSLog("CGEvent.tapCreate succeeded (CFMachPort obtained)")
 
         eventTap = tap
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
@@ -86,7 +86,7 @@ final class EventTapManager: ObservableObject {
         CGEvent.tapEnable(tap: tap, enable: true)
 
         let enabled = CGEvent.tapIsEnabled(tap: tap)
-        os_log("Event tap enabled = %{public}d", log: log, type: .info, enabled)
+        NSLog("Event tap enabled = \(enabled)")
 
         if !enabled {
             lastTapError = "Event tap was created but could not be enabled."
@@ -98,7 +98,7 @@ final class EventTapManager: ObservableObject {
         }
 
         startHealthCheck()
-        os_log("Event tap started and attached to main run loop.", log: log, type: .info)
+        NSLog("Event tap started and attached to main run loop.")
     }
 
     func stop() {
