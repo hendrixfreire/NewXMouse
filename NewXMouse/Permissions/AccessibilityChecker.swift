@@ -8,6 +8,9 @@ final class AccessibilityChecker: ObservableObject {
     @Published var isPostGranted: Bool = false
 
     private var timer: Timer?
+    /// Tracks whether we've already requested Listen/Post access this session
+    /// to avoid repeatedly showing the system prompt dialog.
+    private var hasRequestedListenAccess = false
 
     init() {
         refreshStatus()
@@ -32,8 +35,12 @@ final class AccessibilityChecker: ObservableObject {
             isGranted = AXIsProcessTrustedWithOptions(options)
         }
 
+        // Only request Listen/Post access ONCE per session —
+        // CGRequestListenEventAccess() shows a system dialog every time it's called,
+        // which is extremely annoying if called repeatedly.
         if #available(macOS 10.15, *) {
-            if !isListenGranted {
+            if !isListenGranted && !hasRequestedListenAccess {
+                hasRequestedListenAccess = true
                 _ = CGRequestListenEventAccess()
             }
         }
@@ -54,7 +61,7 @@ final class AccessibilityChecker: ObservableObject {
     }
 
     func startPolling() {
-        timer?.invalidate()
+        guard timer == nil else { return } // Don't stack timers
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {

@@ -224,7 +224,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             eventTapManager.stop()
         } else {
             userDisabledTap = false
-            eventTapManager.start()
+            // Must have permissions before starting the tap
+            if accessibilityChecker.canInterceptEvents {
+                eventTapManager.start()
+            } else {
+                accessibilityChecker.promptIfNeeded()
+            }
         }
     }
 
